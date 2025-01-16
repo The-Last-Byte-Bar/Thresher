@@ -1,0 +1,70 @@
+# DEX Configuration
+dex:
+  explorer_url: "https://api.ergoplatform.com/api/v1"
+  dex_address: "YOUR_DEX_ADDRESS"  # Main DEX contract address
+  tokens:
+    - id: "TOKEN_ID_1"
+      name: "Token1"
+      decimals: 6
+    - id: "TOKEN_ID_2"
+      name: "Token2"
+      decimals: 8
+
+# Data Collection Settings
+data_collection:
+  db_path: "data/dex_data.db"
+  sync_interval: 60  # seconds
+  batch_size: 100
+  max_retries: 3
+  retry_delay: 5.0
+  lookback_days: 30
+
+# Training Configuration
+training:
+  episode_length: 24  # hours
+  lookback_window: 100
+  batch_size: 64
+  validation_split: 0.2
+  epochs: 100
+  checkpoint_interval: 10
+
+# Agent Configuration
+agent:
+  type: "DQN"
+  state_size: 15
+  action_size: 3
+  hidden_size: 128
+  learning_rate: 0.001
+  gamma: 0.99
+  epsilon_start: 1.0
+  epsilon_end: 0.01
+  epsilon_decay: 0.995
+  memory_size: 10000
+  target_update: 10
+  device: "cuda"  # or "cpu"
+
+# Trading Parameters
+trading:
+  initial_balance: 100
+  max_position_size: 100
+  min_position_size: 1
+  position_sizing: "dynamic"  # Options: fixed, kelly, dynamic
+  max_drawdown: 0.10
+  stop_loss_pct: 0.02
+  take_profit_pct: 0.05
+  fee_rate: 0.003
+  slippage_tolerance: 0.01
+
+# Risk Management
+risk:
+  max_trades_per_day: 10
+  max_position_value: 1000
+  min_liquidity_threshold: 5000
+  volatility_threshold: 0.05
+  max_concentration: 0.25
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "logs/trading.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
