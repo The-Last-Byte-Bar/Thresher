@@ -330,7 +330,7 @@ def plot_training_results(metrics: Dict[str, float], save_dir: Path):
 if __name__ == "__main__":
     try:
         # Load data
-        data = pd.read_csv("data/metrics/PHP_swaps_20250116_104156.csv")
+        data = pd.read_csv("data/metrics/CYPX_swaps_20250116_150544.csv")
         data = data.dropna()
         logger.info(f"Loaded data shape: {data.shape}")
         
