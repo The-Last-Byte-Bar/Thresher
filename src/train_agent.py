@@ -1,19 +1,18 @@
 import pandas as pd
 import numpy as np
+import torch
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CallbackList
-from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 import wandb
 from wandb.integration.sb3 import WandbCallback
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import matplotlib.pyplot as plt
 from pathlib import Path
-import time
 import pickle
 import logging
+from datetime import datetime
 from env import DEXTradingEnv
-from process_data import DEXDataPreprocessor
 
 # Configure logging
 logging.basicConfig(
@@ -22,54 +21,79 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class CustomCallback(BaseCallback):
-    """Enhanced callback for logging trading-specific metrics"""
-    def __init__(self, verbose: int = 0):
+class TradingCallback(BaseCallback):
+    """Custom callback for logging trading-specific metrics."""
+    
+    def __init__(self, eval_freq: int = 1000, verbose: int = 0):
         super().__init__(verbose)
-        self.model_save_path = f"models/{int(time.time())}"
+        self.eval_freq = eval_freq
+        self.best_reward = -np.inf
+        self.best_model_path = None
         
     def _on_step(self) -> bool:
-        """Log custom metrics at each step"""
-        # Get the most recent episode info
-        if len(self.model.ep_info_buffer) > 0:
-            last_episode = self.model.ep_info_buffer[-1]
-            episode_reward = last_episode["r"]
-            episode_length = last_episode["l"]
-            
-            # Get environment info from the last step
-            if hasattr(self.training_env, "get_attr"):
+        """Log metrics at each step."""
+        try:
+            # Get the most recent episode info
+            if len(self.model.ep_info_buffer) > 0:
+                episode_info = self.model.ep_info_buffer[-1]
+                episode_reward = episode_info["r"]
+                episode_length = episode_info["l"]
+                
+                # Get environment info
                 env_info = self.training_env.get_attr("last_info")[0]
-                if env_info is not None:
-                    # Log episode metrics
-                    wandb.log({
-                        "episode_reward": episode_reward,
-                        "episode_length": episode_length,
-                        "portfolio_value": env_info["portfolio_value"],
-                        "sharpe_ratio": env_info["sharpe_ratio"],
-                        "max_drawdown": env_info["max_drawdown"],
-                        "volatility_penalty": env_info["volatility_penalty"]
-                    })
+                
+                # Log episode metrics
+                wandb.log({
+                    "train/episode_reward": episode_reward,
+                    "train/episode_length": episode_length,
+                    "train/portfolio_value": env_info["portfolio_value"],
+                    "train/sharpe_ratio": env_info["sharpe_ratio"],
+                    "train/max_drawdown": env_info["max_drawdown"],
+                    "train/current_price": env_info["current_price"],
+                    "train/last_action": env_info["last_action"]
+                })
+                
+                # Save best model
+                if episode_reward > self.best_reward:
+                    self.best_reward = episode_reward
+                    if self.best_model_path:
+                        self.model.save(self.best_model_path)
+                        
+            return True
             
-        return True
+        except Exception as e:
+            logger.error(f"Error in callback: {str(e)}")
+            return False
 
-def prepare_env(data: pd.DataFrame, 
-                initial_balance: float = 10.0,
-                max_position: float = 50.0) -> DummyVecEnv:
-    """Prepare and vectorize the trading environment"""
+def create_env(
+    train_data: pd.DataFrame,
+    initial_balance: float = 10.0,
+    max_position: float = 50.0,
+    transaction_fee: float = 0.002
+) -> DummyVecEnv:
+    """Create and configure the trading environment."""
+    
     def make_env():
         env = DEXTradingEnv(
-            data=data,
+            data=train_data,
             initial_balance=initial_balance,
-            max_position=max_position
+            max_position=max_position,
+            transaction_fee=transaction_fee,
+            reward_window=5,
+            risk_free_rate=0.02,
+            volatility_penalty_factor=0.5
         )
-        return Monitor(env)
+        return env
     
+    # Create vectorized environment
     env = DummyVecEnv([make_env])
+    
+    # Normalize observations and rewards
     env = VecNormalize(
         env,
         norm_obs=True,
         norm_reward=True,
-        clip_obs=10.0,  # Increased from 5.0 for more stability
+        clip_obs=10.0,
         clip_reward=10.0,
         gamma=0.99,
         epsilon=1e-08
@@ -77,186 +101,41 @@ def prepare_env(data: pd.DataFrame,
     
     return env
 
-def check_env_observations(env: DummyVecEnv, num_steps: int = 100) -> bool:
-    """Debug function to check for NaN values in observations"""
-    logger = logging.getLogger(__name__)
-    
-    try:
-        obs = env.reset()
-        logger.info(f"Initial observation shape: {obs.shape}")
-        logger.info(f"Initial observation range: min={obs.min():.4f}, max={obs.max():.4f}")
-        
-        for step in range(num_steps):
-            # Create a proper action array for vectorized environment
-            action = np.array([env.action_space.sample()])
-            
-            # Check action
-            if np.any(np.isnan(action)):
-                logger.error(f"Step {step}: NaN found in action: {action}")
-                return False
-                
-            # Take step and check results
-            obs, rewards, dones, infos = env.step(action)
-            
-            # Check for NaN or infinite values
-            if np.any(np.isnan(obs)) or np.any(np.isinf(obs)):
-                logger.error(f"Step {step}: Invalid values in observation:")
-                logger.error(f"NaN positions: {np.where(np.isnan(obs))}")
-                logger.error(f"Inf positions: {np.where(np.isinf(obs))}")
-                return False
-                
-            # Check reward validity
-            if np.any(np.isnan(rewards)) or np.any(np.isinf(rewards)):
-                logger.error(f"Step {step}: Invalid reward value: {rewards}")
-                return False
-                
-            # Log periodic debug info
-            if step % 10 == 0:
-                logger.info(f"\nStep {step}:")
-                logger.info(f"Action taken: {action}")
-                logger.info(f"Observation shape: {obs.shape}")
-                logger.info(f"Observation range: min={obs.min():.4f}, max={obs.max():.4f}")
-                logger.info(f"Rewards: {rewards}")
-                logger.info(f"Done: {dones}")
-                
-                # Log portfolio info if available
-                if infos and 'portfolio_value' in infos[0]:
-                    logger.info(f"Portfolio value: {infos[0]['portfolio_value']:.4f}")
-                    
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error during environment check: {str(e)}", exc_info=True)
-        return False
-
-def create_ppo_model(env: DummyVecEnv, 
-                    learning_rate: float = 3e-4,
-                    batch_size: int = 64) -> PPO:
-    """Create and configure PPO model"""
+def create_agent(env: DummyVecEnv, config: Dict[str, Any]) -> PPO:
+    """Create and configure the PPO agent."""
     policy_kwargs = dict(
         net_arch=dict(
-            pi=[128, 128],  # Increased network size
-            vf=[128, 128]
+            pi=[128, 128],  # Policy network
+            vf=[128, 128]   # Value function network
         )
     )
     
     model = PPO(
         "MlpPolicy",
         env,
-        learning_rate=learning_rate,
-        n_steps=2048,
-        batch_size=batch_size,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.01,
+        learning_rate=config["learning_rate"],
+        n_steps=config["n_steps"],
+        batch_size=config["batch_size"],
+        n_epochs=config["n_epochs"],
+        gamma=config["gamma"],
+        gae_lambda=config["gae_lambda"],
+        clip_range=config["clip_range"],
+        ent_coef=config["ent_coef"],
         policy_kwargs=policy_kwargs,
-        device='cpu',
+        tensorboard_log=f"./runs/{int(datetime.now().timestamp())}",
+        device="cuda" if torch.cuda.is_available() else "cpu",
         verbose=1
     )
     
     return model
 
-def train_agent(data: pd.DataFrame,
-                total_timesteps: int = 1_000_000,
-                eval_freq: int = 10000,
-                save_dir: str = "models") -> Dict[str, Any]:
-    """Train the trading agent with enhanced data preprocessing"""
-    # Initialize wandb
-    run = wandb.init(
-        project="dex-trading-rl",
-        config={
-            "algorithm": "PPO",
-            "total_timesteps": total_timesteps,
-            "eval_freq": eval_freq,
-            "initial_balance": 10.0,
-            "max_position": 50.0
-        }
-    )
-    
-    # Prepare directories
-    save_dir = Path(save_dir)
-    save_dir.mkdir(exist_ok=True)
-    
-    # Initialize preprocessor
-    preprocessor = DEXDataPreprocessor()
-    
-    # Prepare and split data
-    try:
-        train_data, val_data = preprocessor.prepare_train_val_data(data)
-        logger.info("Data preprocessing successful")
-        logger.info(f"Training data shape: {train_data.shape}")
-        logger.info(f"Validation data shape: {val_data.shape}")
-    except Exception as e:
-        logger.error(f"Error during data preprocessing: {str(e)}")
-        raise
-    
-    # Create environments with processed data
-    train_env = prepare_env(train_data)
-    eval_env = prepare_env(val_data)
-    
-    # Check environments for NaN values
-    logger.info("\nChecking training environment...")
-    if not check_env_observations(train_env):
-        raise ValueError("Training environment producing NaN values")
-    
-    logger.info("\nChecking evaluation environment...")
-    if not check_env_observations(eval_env):
-        raise ValueError("Evaluation environment producing NaN values")
-    
-    # Create model
-    model = create_ppo_model(train_env)
-    
-    # Setup callbacks
-    eval_callback = EvalCallback(
-        eval_env,
-        best_model_save_path=str(save_dir / "best_model"),
-        log_path="./logs/",
-        eval_freq=eval_freq,
-        deterministic=True,
-        render=False
-    )
-    
-    custom_callback = CustomCallback()
-    
-    # Initialize callbacks
-    callbacks = CallbackList([eval_callback, custom_callback])
-    callbacks.init_callback(model)
-    
-    # Train the model
-    try:
-        model.learn(
-            total_timesteps=total_timesteps,
-            callback=callbacks
-        )
-        logger.info("Training completed successfully")
-    except Exception as e:
-        logger.error(f"Error during training: {str(e)}")
-        raise
-    
-    # Save final model and environment statistics
-    model.save(str(save_dir / "final_model"))
-    train_env.save(str(save_dir / "vec_normalize.pkl"))
-    
-    # Save preprocessor for later use
-    with open(save_dir / "preprocessor.pkl", "wb") as f:
-        pickle.dump(preprocessor, f)
-    
-    return {
-        "model": model,
-        "train_env": train_env,
-        "eval_env": eval_env,
-        "save_dir": save_dir,
-        "preprocessor": preprocessor
-    }
-
-def evaluate_agent(model: PPO, 
-                  env: DummyVecEnv, 
-                  num_episodes: int = 10) -> Dict[str, float]:
-    """Evaluate the trained agent"""
+def evaluate_agent(
+    model: PPO,
+    env: DummyVecEnv,
+    num_episodes: int = 10
+) -> Dict[str, float]:
+    """Evaluate the trained agent."""
     episode_rewards = []
-    episode_lengths = []
     portfolio_values = []
     sharpe_ratios = []
     max_drawdowns = []
@@ -265,61 +144,53 @@ def evaluate_agent(model: PPO,
         obs = env.reset()
         done = False
         episode_reward = 0
-        episode_length = 0
         
         while not done:
             action, _ = model.predict(obs, deterministic=True)
-            obs, reward, dones, infos = env.step(action)
-            done = dones.any()
-            
+            obs, reward, done, info = env.step(action)
             episode_reward += reward[0]
-            episode_length += 1
             
             if done:
                 episode_rewards.append(episode_reward)
-                episode_lengths.append(episode_length)
-                portfolio_values.append(infos[0]["portfolio_value"])
-                sharpe_ratios.append(infos[0]["sharpe_ratio"])
-                max_drawdowns.append(infos[0]["max_drawdown"])
-    
-    metrics = {
+                portfolio_values.append(info[0]["portfolio_value"])
+                sharpe_ratios.append(info[0]["sharpe_ratio"])
+                max_drawdowns.append(info[0]["max_drawdown"])
+                
+    return {
         "mean_reward": np.mean(episode_rewards),
         "std_reward": np.std(episode_rewards),
-        "mean_length": np.mean(episode_lengths),
         "mean_portfolio_value": np.mean(portfolio_values),
         "mean_sharpe_ratio": np.mean(sharpe_ratios),
         "mean_max_drawdown": np.mean(max_drawdowns),
         "best_portfolio_value": max(portfolio_values),
         "worst_portfolio_value": min(portfolio_values)
     }
-    
-    return metrics
 
-def plot_training_results(metrics: Dict[str, float], save_dir: Path):
-    """Plot and save training results"""
+def plot_results(metrics: Dict[str, float], save_dir: Path):
+    """Plot and save training results."""
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     
-    # Portfolio Value Distribution
+    # Plot portfolio values
     axes[0, 0].hist(metrics.get("portfolio_values", []), bins=20)
     axes[0, 0].set_title("Portfolio Value Distribution")
     axes[0, 0].set_xlabel("Portfolio Value (ERG)")
     axes[0, 0].set_ylabel("Frequency")
     
-    # Sharpe Ratio Over Time
+    # Plot Sharpe ratios
     axes[0, 1].plot(metrics.get("sharpe_ratios", []))
-    axes[0, 1].set_title("Sharpe Ratio Over Time")
+    axes[0, 1].set_title("Sharpe Ratio Evolution")
     axes[0, 1].set_xlabel("Episode")
     axes[0, 1].set_ylabel("Sharpe Ratio")
     
-    # Drawdown Over Time
+    # Plot drawdowns
     axes[1, 0].plot(metrics.get("max_drawdowns", []))
-    axes[1, 0].set_title("Maximum Drawdown Over Time")
+    axes[1, 0].set_title("Maximum Drawdown Evolution")
     axes[1, 0].set_xlabel("Episode")
     axes[1, 0].set_ylabel("Max Drawdown")
     
-    # Rewards Over Time
+    # Plot rewards
     axes[1, 1].plot(metrics.get("episode_rewards", []))
-    axes[1, 1].set_title("Episode Rewards Over Time")
+    axes[1, 1].set_title("Episode Rewards")
     axes[1, 1].set_xlabel("Episode")
     axes[1, 1].set_ylabel("Total Reward")
     
@@ -327,34 +198,135 @@ def plot_training_results(metrics: Dict[str, float], save_dir: Path):
     plt.savefig(save_dir / "training_results.png")
     plt.close()
 
-if __name__ == "__main__":
+def train_agent(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Main training function."""
     try:
-        # Load data
-        data = pd.read_csv("data/metrics/CYPX_swaps_20250116_150544.csv")
-        data = data.dropna()
-        logger.info(f"Loaded data shape: {data.shape}")
+        # Initialize wandb
+        run = wandb.init(
+            project="dex-trading-rl",
+            config=config,
+            sync_tensorboard=True
+        )
         
-        # Train the agent with enhanced preprocessing
-        training_results = train_agent(
-            data=data,
-            total_timesteps=1_000_000,
-            eval_freq=10000
+        # Create directories
+        save_dir = Path(config["save_dir"])
+        save_dir.mkdir(exist_ok=True)
+        
+        # Load preprocessed data
+        train_data = pd.read_pickle(Path(config["data_dir"]) / "train_data.pkl")
+        val_data = pd.read_pickle(Path(config["data_dir"]) / "val_data.pkl")
+        
+        logger.info(f"Loaded training data shape: {train_data.shape}")
+        logger.info(f"Loaded validation data shape: {val_data.shape}")
+        
+        # Create environments
+        train_env = create_env(
+            train_data,
+            initial_balance=config["initial_balance"],
+            max_position=config["max_position"],
+            transaction_fee=config["transaction_fee"]
+        )
+        
+        val_env = create_env(
+            val_data,
+            initial_balance=config["initial_balance"],
+            max_position=config["max_position"],
+            transaction_fee=config["transaction_fee"]
+        )
+        
+        # Create agent
+        model = create_agent(train_env, config)
+        
+        # Setup callbacks
+        eval_callback = EvalCallback(
+            val_env,
+            best_model_save_path=str(save_dir / "best_model"),
+            log_path="./logs/",
+            eval_freq=config["eval_freq"],
+            deterministic=True,
+            render=False
+        )
+        
+        trading_callback = TradingCallback(
+            eval_freq=config["eval_freq"]
+        )
+        
+        wandb_callback = WandbCallback()
+        
+        # Train the agent
+        model.learn(
+            total_timesteps=config["total_timesteps"],
+            callback=[eval_callback, trading_callback, wandb_callback]
         )
         
         # Evaluate the trained agent
         eval_metrics = evaluate_agent(
-            model=training_results["model"],
-            env=training_results["eval_env"]
+            model,
+            val_env,
+            num_episodes=config["eval_episodes"]
         )
         
-        # Plot and save results
-        plot_training_results(eval_metrics, training_results["save_dir"])
+        # Log final metrics
+        wandb.log({"eval/" + k: v for k, v in eval_metrics.items()})
         
-        # Print final metrics
-        logger.info("\nEvaluation Metrics:")
-        for metric, value in eval_metrics.items():
-            logger.info(f"{metric}: {value:.4f}")
-            
+        # Plot and save results
+        plot_results(eval_metrics, save_dir)
+        
+        # Save the final model and environment
+        model.save(str(save_dir / "final_model"))
+        train_env.save(str(save_dir / "vec_normalize.pkl"))
+        
+        return {
+            "model": model,
+            "train_env": train_env,
+            "val_env": val_env,
+            "metrics": eval_metrics
+        }
+        
     except Exception as e:
         logger.error(f"Training failed: {str(e)}")
-        raise
+        return None
+        
+    finally:
+        wandb.finish()
+
+def main():
+    # Training configuration
+    config = {
+        "data_dir": "processed_data",
+        "save_dir": "models",
+        
+        # Environment parameters
+        "initial_balance": 10.0,
+        "max_position": 50.0,
+        "transaction_fee": 0.002,
+        
+        # Training parameters
+        "total_timesteps": 1_000_000,
+        "eval_freq": 10000,
+        "eval_episodes": 10,
+        
+        # PPO parameters
+        "learning_rate": 3e-4,
+        "n_steps": 2048,
+        "batch_size": 64,
+        "n_epochs": 10,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "ent_coef": 0.01
+    }
+    
+    # Train the agent
+    results = train_agent(config)
+    
+    if results:
+        logger.info("Training completed successfully")
+        logger.info("\nEvaluation Metrics:")
+        for metric, value in results["metrics"].items():
+            logger.info(f"{metric}: {value:.4f}")
+    else:
+        logger.error("Training failed")
+
+if __name__ == "__main__":
+    main()
