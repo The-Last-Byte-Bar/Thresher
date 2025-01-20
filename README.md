@@ -1,196 +1,226 @@
 # DEX Trading System with Reinforcement Learning
 
 ## System Overview
-This project implements an automated trading system for the Ergo blockchain DEX using reinforcement learning. The system consists of two main components:
-1. Data Collection & Processing Pipeline
-2. Reinforcement Learning Trading Agent
+This project implements an automated trading system for the Ergo blockchain DEX using reinforcement learning. The system consists of several main components:
+1. Data Collection & Analysis Pipeline
+2. Trading Environment
+3. Reinforcement Learning Training Pipeline
+4. Dashboard & Monitoring System
 
 ## Key Components
 
-### 1. Data Collection System (`dex_collector.py`)
-- Collects and processes DEX swap transactions
-- Tracks price movements and trading patterns
-- Maintains trader profiles and analytics
-- Uses SQLite for data storage
+### 1. Data Collection System
+#### Node Client (`client.py`)
+- Manages blockchain node communication
+- Fetches transaction data within specified block ranges
+- Handles API authentication and rate limiting
+- Provides robust error handling and retry logic
 
-Required files from base project:
-- `clients.py` (Explorer client)
-- `models.py` (Data models)
-- `services.py` (Helper services)
+#### DEX Analyzer (`dex_analyzer.py`)
+- Processes DEX transactions
+- Identifies and analyzes swap events
+- Tracks token information and metrics
+- Handles token registry and metadata
 
-Database Schema:
-```sql
-- swaps: Transaction data
-- address_profiles: Trader behavior data
-- price_history: Token price tracking
-```
+#### DEX Monitor (`dex_monitor.py`)
+- Coordinates data collection and analysis
+- Manages historical data retrieval
+- Updates metrics in real-time
+- Exports analytics and metrics
 
-### 2. RL Environment (`dex_environment.py`)
-- Implements OpenAI Gym interface
-- Manages state representation
-- Handles action execution
-- Calculates rewards
+### 2. Metrics & Analytics
+#### Token Registry
+- Maintains token metadata
+- Tracks token volumes and trades
+- Identifies LP tokens
+- Manages token decimals and scaling
 
-### 3. Training Pipeline (`train.py`)
-- Manages offline training process
+#### Trading Metrics (`metrics.py`)
+- Calculates comprehensive trading metrics:
+  - Price movements and volatility
+  - Volume analysis
+  - Liquidity metrics
+  - Trading patterns
+  - Risk metrics (RSI, Bollinger Bands)
+- Exports metrics to CSV for analysis
+
+### 3. Trading Environment (`env.py`)
+- Implements OpenAI Gymnasium interface
+- Manages portfolio state and actions
+- Calculates sophisticated rewards including:
+  - Portfolio returns
+  - Risk-adjusted metrics
+  - Trading costs
+  - Volatility penalties
+- Handles position sizing and risk limits
+
+### 4. Training Pipeline (`train_agent.py`)
+- Implements PPO-based training
 - Handles data preprocessing
-- Implements training loop
-- Saves and evaluates models
+- Manages model training and evaluation
+- Integrates with Weights & Biases for monitoring
+- Implements callbacks for tracking metrics
 
-### 4. Live Trading System (`live_trader.py`)
-- Implements paper trading
-- Manages live trading execution
-- Handles risk management
-- Monitors performance
+### 5. Dashboard (`dex_dash.py`)
+- Interactive trading dashboard using Dash
+- Real-time price and volume charts
+- Trading metrics visualization
+- Portfolio performance monitoring
+- Technical indicators display
 
-## Implementation Requirements
+## Implementation Details
 
-### Configuration (`config.yaml`)
-```yaml
-dex:
-  address: "DEX_ADDRESS"
-  tokens: ["TOKEN_IDs"]
-  
-training:
-  episode_length: 24  # hours
-  lookback_window: 100
-  batch_size: 64
-  
-agent:
-  model_type: "DQN"
-  learning_rate: 0.001
-  discount_factor: 0.99
-  
-trading:
-  max_position_size: 100
-  stop_loss: 0.02
-  take_profit: 0.05
+### Data Models
+```python
+@dataclass
+class SwapEvent:
+    tx_id: str
+    timestamp: int
+    height: int
+    input_token: str
+    output_token: str
+    input_amount: float
+    output_amount: float
+    price: float
+    fee_erg: float
+    # Additional fields for analysis
+    price_impact: float
+    erg_liquidity: float
+    token_liquidity: float
+
+@dataclass
+class TokenMetrics:
+    token_name: str
+    current_price: float
+    price_ma_5: float
+    price_ma_20: float
+    volume_ma_5: float
+    price_volatility: float
+    # Advanced metrics
+    rsi_14: float
+    bb_position: Dict[str, float]
+    market_impact: float
 ```
+
+### Environment Design
+The trading environment (`DEXTradingEnv`) implements:
+- State space: 23 dimensions including price, volume, and portfolio metrics
+- Action space: HOLD, BUY, SELL, REBALANCE
+- Reward function: Combines multiple components:
+  ```python
+  reward = (
+      portfolio_return * 0.4 +    # Base performance
+      window_reward * 0.2 +       # Medium-term performance
+      sharpe_component * 0.2 +    # Risk-adjusted performance
+      drawdown_penalty * 0.1 +    # Drawdown penalty
+      volatility_penalty * 0.1 +  # Volatility penalty
+      action_penalty              # Trading cost penalty
+  )
+  ```
 
 ### Project Structure
 ```
 project/
 ├── data/
-│   └── dex_data.db
-├── models/
-│   └── saved_models/
-├── src/
-│   ├── collectors/
-│   │   └── dex_collector.py
-│   ├── environment/
-│   │   └── dex_environment.py
-│   ├── agents/
-│   │   └── dqn_agent.py
-│   ├── trading/
-│   │   └── live_trader.py
-│   └── utils/
-│       ├── data_preprocessing.py
-│       └── risk_management.py
-├── config.yaml
-└── requirements.txt
+│   ├── metrics/
+│   └── swaps/
+├── client.py
+├── dex_analyzer.py
+├── dex_monitor.py
+├── dex_dash.py
+├── env.py
+├── metrics.py
+├── swap_storage.py
+├── train_agent.py
+└── export_metrics.py
 ```
 
 ### Required Dependencies
 ```
 torch
-gym
+stable-baselines3
+gymnasium
+dash
+plotly
 numpy
 pandas
-sqlite3
 aiohttp
-pyyaml
+wandb
 ```
 
 ## Key Features
 
-### Data Collection
-- Real-time swap tracking
-- Price calculation from swap ratios
-- Trading pattern analysis
-- Address profiling
+### Data Collection & Analysis
+- Real-time swap event tracking
+- Token registry management
+- Advanced metrics calculation
+- Data export and storage
 
-### RL Environment
-- State: Price, volume, liquidity metrics
-- Actions: Buy, sell, hold
-- Rewards: PnL with risk adjustment
-- Episode: 24-hour trading periods
+### Trading Environment
+- Comprehensive state representation
+- Risk-aware reward function
+- Position management
+- Trading fee simulation
 
 ### Training Process
-1. Historical data collection
-2. Episode generation
-3. Model training
+1. Data preprocessing
+2. Environment setup and validation
+3. PPO model training
 4. Performance evaluation
-5. Paper trading validation
+5. Model export and metrics logging
 
-### Live Trading
-1. Real-time data processing
-2. Model inference
-3. Trade execution/simulation
-4. Performance monitoring
-
-## Implementation Notes
-
-### State Representation
-- Price data (multiple timeframes)
-- Volume indicators
-- Liquidity metrics
-- Trading patterns
-- Market sentiment indicators
-
-### Action Space
-- Discrete actions (buy/sell/hold)
-- Position sizing
-- Entry/exit timing
-
-### Reward Function
-```python
-reward = pnl - risk_penalty + alpha * sharp_ratio
-```
-
-### Risk Management
-- Position size limits
-- Stop-loss mechanisms
-- Portfolio diversification
-- Drawdown controls
+### Dashboard & Monitoring
+- Interactive price charts
+- Volume analysis
+- Technical indicators
+- Portfolio metrics
+- Trading signals
 
 ## Usage Examples
 
-1. Data Collection:
+### 1. Data Collection
 ```python
-collector = DEXDataCollector(explorer_client)
-await collector.collect_dex_data(dex_address)
+monitor = await DEXMonitor.create(NODE_URL, DEX_ADDRESS)
+transactions = await monitor.fetch_time_range(days_back=30)
+swaps = await monitor.analyze_transactions(transactions)
+analytics = monitor.save_and_analyze_swaps(swaps)
 ```
 
-2. Training:
+### 2. Training
 ```python
-env = DEXTradingEnv(historical_data)
-agent = DQNAgent(env)
-trainer = ModelTrainer(agent, env)
-await trainer.train(episodes=1000)
+# Prepare environment
+env = DEXTradingEnv(data=training_data)
+env = DummyVecEnv([lambda: env])
+env = VecNormalize(env)
+
+# Create and train model
+model = PPO("MlpPolicy", env)
+model.learn(total_timesteps=1_000_000)
 ```
 
-3. Live Trading:
+### 3. Dashboard
 ```python
-trader = LiveTrader(model_path="models/best_model.pth")
-await trader.start_paper_trading()
+dashboard = EnhancedDEXDashboard()
+dashboard.load_data()
+dashboard.run_server()
 ```
 
 ## Extension Points
 
-1. Advanced Features
-- Multi-token trading
-- Portfolio optimization
+### 1. Advanced Features
+- Multi-token portfolio optimization
 - Advanced order types
 - Market making strategies
+- Social trading features
 
-2. Improvements
+### 2. Potential Improvements
 - Enhanced state representation
 - More sophisticated reward functions
 - Advanced risk management
-- Additional trading strategies
+- Additional technical indicators
 
-This system can be extended with additional features such as:
-- Market making capabilities
-- Multi-token portfolio management
-- Advanced order types
-- Social trading features
+### 3. Infrastructure
+- Distributed data collection
+- Real-time model updates
+- Advanced monitoring systems
+- Automated retraining pipeline
