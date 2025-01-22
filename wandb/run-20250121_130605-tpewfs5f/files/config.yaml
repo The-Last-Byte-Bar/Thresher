@@ -1,0 +1,83 @@
+_wandb:
+    value:
+        cli_version: 0.19.3
+        m: []
+        python_version: 3.12.4
+        t:
+            "1":
+                - 1
+                - 55
+            "2":
+                - 1
+                - 55
+            "3":
+                - 2
+                - 14
+                - 16
+                - 23
+                - 35
+                - 55
+            "4": 3.12.4
+            "5": 0.19.3
+            "8":
+                - 5
+            "12": 0.19.3
+            "13": linux-x86_64
+batch_size:
+    value: 2048
+clip_obs:
+    value: 5
+clip_range:
+    value: 0.2
+clip_reward:
+    value: 5
+data_dir:
+    value: processed_data
+ent_coef:
+    value: 0.005
+eval_episodes:
+    value: 10
+eval_freq:
+    value: 10000
+gae_lambda:
+    value: 0.95
+gamma:
+    value: 0.99
+initial_balance:
+    value: 10
+learning_rate:
+    value: 0.0003
+max_grad_norm:
+    value: 0.5
+max_position:
+    value: 15
+n_envs:
+    value: 16
+n_epochs:
+    value: 10
+n_steps:
+    value: 4096
+net_arch:
+    value:
+        pi:
+            - 256
+            - 256
+        vf:
+            - 256
+            - 256
+normalize_observations:
+    value: true
+normalize_rewards:
+    value: true
+reward_scaling:
+    value: 1
+risk_free_rate:
+    value: 5.479452054794521e-05
+save_dir:
+    value: models
+total_timesteps:
+    value: 1000000
+transaction_fee:
+    value: 0.002
+vf_coef:
+    value: 0.5

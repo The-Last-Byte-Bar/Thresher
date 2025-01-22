@@ -130,7 +130,7 @@ class RLDataPreprocessor:
 
 def main():
     # Configuration
-    INPUT_FILE = "data/metrics/CYPX_swaps_20250116_150544.csv"
+    INPUT_FILE = "data/metrics/CYPX_swaps_20250120_105113.csv"
     OUTPUT_DIR = "processed_data"
     
     try:

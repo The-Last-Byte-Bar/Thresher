@@ -1,0 +1,253 @@
+_current_progress_remaining:
+    value: 1
+_custom_logger:
+    value: "False"
+_episode_num:
+    value: 0
+_last_episode_starts:
+    value: |-
+        [ True  True  True  True  True  True  True  True  True  True  True  True
+          True  True  True  True]
+_last_obs:
+    value: |-
+        [[-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]
+         [-0.00180076 -0.0017502   0.         -0.00151451  0.00052091  0.
+          -0.00130039  0.00176706  0.          0.          0.          0.        ]]
+_last_original_obs:
+    value: |-
+        [[-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]
+         [-0.9999992  -0.9999989   0.         -0.73212856  0.21819821  0.
+          -0.59648436  1.          0.          0.          0.          0.        ]]
+_logger:
+    value: <stable_baselines3.common.logger.Logger object at 0x7387b01ed370>
+_n_updates:
+    value: 0
+_num_timesteps_at_start:
+    value: 0
+_stats_window_size:
+    value: 100
+_total_timesteps:
+    value: 1000000
+_vec_normalize_env:
+    value: <stable_baselines3.common.vec_env.vec_normalize.VecNormalize object at 0x7387d9bc1850>
+_wandb:
+    value:
+        cli_version: 0.19.3
+        m: []
+        python_version: 3.12.4
+        t:
+            "1":
+                - 1
+                - 55
+            "2":
+                - 1
+                - 55
+            "3":
+                - 1
+                - 2
+                - 3
+                - 14
+                - 16
+                - 22
+                - 23
+                - 35
+                - 55
+            "4": 3.12.4
+            "5": 0.19.3
+            "8":
+                - 5
+            "12": 0.19.3
+            "13": linux-x86_64
+action_noise:
+    value: None
+action_space:
+    value: Discrete(4)
+algo:
+    value: PPO
+batch_size:
+    value: 2048
+clip_obs:
+    value: 5
+clip_range:
+    value: 0.2
+clip_range_vf:
+    value: None
+clip_reward:
+    value: 5
+data_dir:
+    value: processed_data
+device:
+    value: cuda:0
+ent_coef:
+    value: 0.005
+env:
+    value: <stable_baselines3.common.vec_env.vec_normalize.VecNormalize object at 0x7387d9bc1850>
+ep_info_buffer:
+    value: deque([], maxlen=100)
+ep_success_buffer:
+    value: deque([], maxlen=100)
+eval_episodes:
+    value: 10
+eval_freq:
+    value: 10000
+gae_lambda:
+    value: 0.95
+gamma:
+    value: 0.99
+initial_balance:
+    value: 10
+learning_rate:
+    value: 0.0003
+lr_schedule:
+    value: <function get_schedule_fn.<locals>.<lambda> at 0x7387d9ba9c60>
+max_grad_norm:
+    value: 0.5
+max_position:
+    value: 15
+n_envs:
+    value: 16
+n_epochs:
+    value: 10
+n_steps:
+    value: 4096
+net_arch:
+    value:
+        pi:
+            - 256
+            - 256
+        vf:
+            - 256
+            - 256
+normalize_advantage:
+    value: "True"
+normalize_observations:
+    value: true
+normalize_rewards:
+    value: true
+num_timesteps:
+    value: 0
+observation_space:
+    value: Box(-5.0, 5.0, (12,), float32)
+policy:
+    value: |-
+        ActorCriticPolicy(
+          (features_extractor): FlattenExtractor(
+            (flatten): Flatten(start_dim=1, end_dim=-1)
+          )
+          (pi_features_extractor): FlattenExtractor(
+            (flatten): Flatten(start_dim=1, end_dim=-1)
+          )
+          (vf_features_extractor): FlattenExtractor(
+            (flatten): Flatten(start_dim=1, end_dim=-1)
+          )
+          (mlp_extractor): MlpExtractor(
+            (policy_net): Sequential(
+              (0): Linear(in_features=12, out_features=256, bias=True)
+              (1): ReLU()
+              (2): Linear(in_features=256, out_features=256, bias=True)
+              (3): ReLU()
+            )
+            (value_net): Sequential(
+              (0): Linear(in_features=12, out_features=256, bias=True)
+              (1): ReLU()
+              (2): Linear(in_features=256, out_features=256, bias=True)
+              (3): ReLU()
+            )
+          )
+          (action_net): Linear(in_features=256, out_features=4, bias=True)
+          (value_net): Linear(in_features=256, out_features=1, bias=True)
+        )
+policy_class:
+    value: <class 'stable_baselines3.common.policies.ActorCriticPolicy'>
+policy_kwargs:
+    value: '{''net_arch'': {''pi'': [256, 256], ''vf'': [256, 256]}, ''activation_fn'': <class ''torch.nn.modules.activation.ReLU''>, ''optimizer_class'': <class ''torch.optim.adam.Adam''>, ''optimizer_kwargs'': {''eps'': 1e-05, ''weight_decay'': 1e-05}}'
+reward_scaling:
+    value: 1
+risk_free_rate:
+    value: 5.479452054794521e-05
+rollout_buffer:
+    value: <stable_baselines3.common.buffers.RolloutBuffer object at 0x7387d9bc2f30>
+rollout_buffer_class:
+    value: <class 'stable_baselines3.common.buffers.RolloutBuffer'>
+rollout_buffer_kwargs:
+    value: '{}'
+save_dir:
+    value: models
+sde_sample_freq:
+    value: -1
+seed:
+    value: None
+start_time:
+    value: 1737482956416574101
+target_kl:
+    value: None
+tensorboard_log:
+    value: ./runs/1737482955
+total_timesteps:
+    value: 1000000
+transaction_fee:
+    value: 0.002
+use_sde:
+    value: "False"
+verbose:
+    value: 1
+vf_coef:
+    value: 0.5

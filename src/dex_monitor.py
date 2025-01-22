@@ -134,7 +134,7 @@ async def main():
         
         # Fetch last 60 days of transactions
         logger.info("Starting transaction fetch...")
-        transactions = await monitor.fetch_time_range(days_back=10)
+        transactions = await monitor.fetch_time_range(days_back=30*6)
         logger.info(f"Fetched {len(transactions)} transactions")
         
         # Analyze swaps

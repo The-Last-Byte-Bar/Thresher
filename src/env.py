@@ -2,355 +2,267 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional, Deque
-from enum import Enum
-from collections import deque
+import logging
+from typing import Dict, Tuple, Optional
 
-class Action(Enum):
-    HOLD = 0
-    BUY = 1
-    SELL = 2
-    REBALANCE = 3
-
-@dataclass
-class PortfolioState:
-    erg_balance: float
-    token_balance: float
-    token_value_in_erg: float
-    total_value_in_erg: float
-    last_action: Action
-    current_price: float
-    
-    def to_array(self) -> np.ndarray:
-        return np.array([
-            self.erg_balance,
-            self.token_balance,
-            self.token_value_in_erg,
-            self.total_value_in_erg,
-            self.last_action.value,
-            self.current_price
-        ])
+from portfolio import PortfolioManager
+from trading_actions import TradingExecutor, Action
+from reward_function import RewardCalculator
+from state_encoder import StateEncoder
+from risk_metrics import RiskMetricsCalculator
+from env_monitor import EnvironmentMonitor
 
 class DEXTradingEnv(gym.Env):
+    """DEX Trading Environment that implements the OpenAI Gym interface.
+    
+    This environment simulates a DEX trading scenario where an agent can execute
+    trades using ERG and tokens. It provides a realistic trading experience with
+    comprehensive state information, risk management, and performance monitoring.
+    """
+    
     metadata = {'render_modes': ['human']}
     
-    def __init__(self, 
+    def __init__(self,
                  data: pd.DataFrame,
                  initial_balance: float = 10.0,
                  transaction_fee: float = 0.002,
-                 reward_window: int = 5,
-                 trade_size: float = 1.0,
-                 max_position: float = 50.0,
-                 risk_free_rate: float = 0.02,  # Annual risk-free rate
-                 volatility_penalty_factor: float = 0.5,
-                 render_mode: str = None):
+                 max_position: float = 25.0,
+                 reward_scaling: float = 1.0,
+                 risk_free_rate: float = 0.02/365):
+        """Initialize the trading environment."""
         super().__init__()
         
-        # Data setup
+        # Set up logging
+        self.logger = logging.getLogger("DEXTradingEnv")
+        
+        # Store configuration
         self.data = data
         self.current_step = 0
-        self.reward_window = reward_window
-        self.trade_size = trade_size
-        self.max_position = max_position
-        self.risk_free_rate = risk_free_rate / 365  # Convert to daily
-        self.volatility_penalty_factor = volatility_penalty_factor
-        self.render_mode = render_mode
         
-        # Trading params
-        self.initial_balance = initial_balance
-        self.transaction_fee = transaction_fee
-        
-        # Risk metrics tracking
-        self.returns_history = deque(maxlen=100)  # For Sharpe ratio
-        self.peak_value = initial_balance  # For max drawdown
-        self.max_drawdown = 0.0
-        
-        # Portfolio tracking
-        self.portfolio = PortfolioState(
-            erg_balance=initial_balance,
-            token_balance=0.0,
-            token_value_in_erg=0.0,
-            total_value_in_erg=initial_balance,
-            last_action=Action.HOLD,
-            current_price=0.0
+        # Initialize core components
+        self.portfolio = PortfolioManager(initial_balance=initial_balance)
+        self.trading_executor = TradingExecutor(
+            portfolio_manager=self.portfolio,
+            transaction_fee=transaction_fee,
+            max_trade_size=0.25  # Limit single trade to 25% of portfolio
         )
         
-        # Portfolio history for reward calculation
-        self.portfolio_history = []
+        self.reward_calculator = RewardCalculator(
+            portfolio_manager=self.portfolio,
+            base_transaction_fee=transaction_fee,
+            reward_scaling=reward_scaling
+        )
         
-        # Action space: HOLD, BUY, SELL, REBALANCE
+        self.state_encoder = StateEncoder(
+            portfolio_manager=self.portfolio,
+            price_feature_window=20,
+            volume_feature_window=5
+        )
+        
+        self.risk_calculator = RiskMetricsCalculator(
+            portfolio_manager=self.portfolio,
+            risk_free_rate=risk_free_rate
+        )
+        
+        self.monitor = EnvironmentMonitor(
+            max_portfolio_value=initial_balance * 100,  # Set reasonable limits
+            min_portfolio_value=initial_balance * 0.1,
+            max_position_size=0.95,
+            max_drawdown=0.5
+        )
+        
+        # Define action and observation spaces
         self.action_space = spaces.Discrete(len(Action))
-        
-        # Observation space: combination of market and portfolio features
         self.observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(23,),  # Added max_drawdown and sharpe_ratio to observation
+            low=-5,
+            high=5,
+            shape=(self.state_encoder.get_observation_dim(),),
             dtype=np.float32
         )
-
-    def _calculate_sharpe_ratio(self) -> float:
-        """Calculate Sharpe ratio using return history"""
-        if len(self.returns_history) < 2:
-            return 0.0
-            
-        returns = np.array(self.returns_history)
-        excess_returns = returns - self.risk_free_rate
         
-        if np.std(excess_returns) == 0:
-            return 0.0
-            
-        sharpe = np.sqrt(365) * (np.mean(excess_returns) / np.std(excess_returns))
-        return float(sharpe)
-
-    def _update_max_drawdown(self) -> float:
-        """Update and return the maximum drawdown"""
-        current_value = self.portfolio.total_value_in_erg
-        self.peak_value = max(self.peak_value, current_value)
+        # Store last info for monitoring
+        self.last_info = None
         
-        drawdown = (self.peak_value - current_value) / self.peak_value
-        self.max_drawdown = max(self.max_drawdown, drawdown)
-        
-        return self.max_drawdown
-
-    def _calculate_volatility_penalty(self) -> float:
-        """Calculate penalty for holding large positions during high volatility"""
-        current_data = self.data.iloc[self.current_step]
-        
-        # Get current volatility and normalize it
-        current_volatility = current_data.volatility
-        token_position_ratio = self.portfolio.token_value_in_erg / self.portfolio.total_value_in_erg
-        
-        # Penalize based on position size and volatility
-        penalty = (
-            current_volatility * 
-            token_position_ratio * 
-            self.volatility_penalty_factor
-        )
-        
-        return min(penalty, 1.0)  # Cap penalty at 1.0
-
-    def _get_observation(self) -> np.ndarray:
-        """Combine market data and portfolio state into observation"""
-        current_data = self.data.iloc[self.current_step]
-        
-        # Market features
-        market_features = np.array([
-            current_data.price,
-            current_data.price_ma_5,
-            current_data.price_ma_20,
-            current_data.volume_ma_5,
-            current_data.volatility,
-            current_data.price_momentum_5,
-            current_data.price_momentum_20,
-            current_data.volume_momentum_5,
-            current_data.bb_position_5,
-            current_data.bb_position_20,
-            current_data.erg_liquidity,
-            current_data.token_liquidity,
-            current_data.volume_erg,
-            current_data.returns,
-            current_data.bb_std_20,
-            self.max_drawdown,
-            self._calculate_sharpe_ratio()
-        ], dtype=np.float32)
-        
-        # Combine with portfolio state
-        return np.concatenate([
-            market_features,
-            self.portfolio.to_array()
-        ]).astype(np.float32)
-
-    def _calculate_reward(self) -> float:
-        """Calculate reward based on portfolio performance and risk metrics"""
-        # Calculate base portfolio return
-        portfolio_return = (
-            self.portfolio.total_value_in_erg - self.initial_balance
-        ) / self.initial_balance
-        
-        # Update returns history for Sharpe ratio
-        if len(self.portfolio_history) > 1:
-            daily_return = (
-                self.portfolio.total_value_in_erg - 
-                self.portfolio_history[-1].total_value_in_erg
-            ) / self.portfolio_history[-1].total_value_in_erg
-            self.returns_history.append(daily_return)
-        
-        # Calculate Sharpe ratio component
-        sharpe_ratio = self._calculate_sharpe_ratio()
-        sharpe_component = np.clip(sharpe_ratio / 10, -1, 1)  # Normalize to [-1, 1]
-        
-        # Update and get max drawdown penalty
-        drawdown_penalty = -self._update_max_drawdown()
-        
-        # Get volatility penalty
-        volatility_penalty = -self._calculate_volatility_penalty()
-        
-        # Add penalty for excessive trading
-        action_penalty = 0
-        if self.portfolio.last_action != Action.HOLD:
-            action_penalty = -self.transaction_fee
-        
-        # Window-based reward component
-        window_reward = 0
-        if len(self.portfolio_history) >= self.reward_window:
-            window_start_value = self.portfolio_history[-self.reward_window].total_value_in_erg
-            window_return = (self.portfolio.total_value_in_erg - window_start_value) / window_start_value
-            window_reward = window_return
-        
-        # Combine all components
-        total_reward = (
-            portfolio_return * 0.4 +    # Base portfolio performance
-            window_reward * 0.2 +       # Medium-term performance
-            sharpe_component * 0.2 +    # Risk-adjusted performance
-            drawdown_penalty * 0.1 +    # Drawdown penalty
-            volatility_penalty * 0.1 +  # Volatility penalty
-            action_penalty              # Trading cost penalty
-        )
-        
-        return float(total_reward)
-
-    def _execute_trade(self, action: Action) -> None:
-        """Execute trading action and update portfolio with position limits"""
-        current_data = self.data.iloc[self.current_step]
-        price = current_data.price
-        
-        if action == Action.BUY and self.portfolio.erg_balance >= self.trade_size:
-            # Check position limit
-            potential_token_value = (
-                (self.portfolio.token_balance * price) + 
-                (self.trade_size * (1 - self.transaction_fee))
-            )
-            
-            if potential_token_value <= self.max_position:
-                # Calculate tokens to receive
-                tokens_to_receive = (self.trade_size * (1 - self.transaction_fee)) / price
-                
-                # Update portfolio
-                self.portfolio.erg_balance -= self.trade_size
-                self.portfolio.token_balance += tokens_to_receive
-            
-        elif action == Action.SELL and self.portfolio.token_balance > 0:
-            # Calculate ERG to receive
-            tokens_to_sell = min(
-                self.portfolio.token_balance,
-                self.trade_size / price
-            )
-            erg_to_receive = tokens_to_sell * price * (1 - self.transaction_fee)
-            
-            # Update portfolio
-            self.portfolio.token_balance -= tokens_to_sell
-            self.portfolio.erg_balance += erg_to_receive
-            
-        elif action == Action.REBALANCE:
-            # Simple 50-50 rebalancing with position limit
-            total_value = self.portfolio.total_value_in_erg
-            target_erg = total_value / 2
-            
-            # Ensure target position doesn't exceed max_position
-            target_erg = min(target_erg, self.max_position)
-            
-            current_erg_value = self.portfolio.erg_balance
-            current_token_value = self.portfolio.token_balance * price
-            
-            if current_erg_value > target_erg:
-                # Buy tokens
-                erg_to_trade = (current_erg_value - target_erg) * (1 - self.transaction_fee)
-                tokens_to_receive = erg_to_trade / price
-                
-                self.portfolio.erg_balance -= erg_to_trade
-                self.portfolio.token_balance += tokens_to_receive
-                
-            elif current_token_value > target_erg:
-                # Sell tokens
-                tokens_to_sell = (current_token_value - target_erg) / price
-                erg_to_receive = tokens_to_sell * price * (1 - self.transaction_fee)
-                
-                self.portfolio.token_balance -= tokens_to_sell
-                self.portfolio.erg_balance += erg_to_receive
-        
-        # Update portfolio state
-        self.portfolio.current_price = price
-        self.portfolio.token_value_in_erg = self.portfolio.token_balance * price
-        self.portfolio.total_value_in_erg = (
-            self.portfolio.erg_balance + self.portfolio.token_value_in_erg
-        )
-        self.portfolio.last_action = action
-        
-        # Record portfolio state
-        self.portfolio_history.append(PortfolioState(**vars(self.portfolio)))
-
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict]:
-        """Execute one environment step"""
-        action = Action(action)
-        
-        # Execute trade
-        self._execute_trade(action)
-        
-        # Calculate reward
-        reward = self._calculate_reward()
-        
-        # Move to next step
-        self.current_step += 1
-        terminated = self.current_step >= len(self.data) - 1
-        truncated = False
-        
-        # Get new observation
-        obs = self._get_observation()
-        
-        # Additional info
-        info = {
-            'portfolio_value': self.portfolio.total_value_in_erg,
-            'current_price': self.portfolio.current_price,
-            'last_action': action.name,
-            'sharpe_ratio': self._calculate_sharpe_ratio(),
-            'max_drawdown': self.max_drawdown,
-            'volatility_penalty': self._calculate_volatility_penalty()
-        }
-        
-        return obs, reward, terminated, truncated, info
-
-    def reset(self, seed=None, options=None) -> Tuple[np.ndarray, Dict]:
-        """Reset environment to initial state"""
+        """Execute one step in the environment."""
+        try:
+            # Get current market data
+            current_data = self.data.iloc[self.current_step]
+            
+            # Execute trading action
+            success, message = self.trading_executor.execute_trade(
+                Action(action),
+                current_data['price']
+            )
+            
+            # Calculate reward
+            reward = self.reward_calculator.calculate_reward(Action(action))
+            
+            # Update risk metrics
+            risk_metrics = self.risk_calculator.update_metrics(current_data['price'])
+            
+            # Get new state observation
+            observation = self.state_encoder.encode_state(current_data)
+            
+            # Check environment state
+            is_valid, monitor_message = self.monitor.check_state(
+                self.portfolio.state.total_value_in_erg,
+                self.portfolio.get_position_size(),
+                action,
+                reward
+            )
+            
+            # Determine termination conditions
+            terminated = False
+            if not is_valid:
+                terminated = True
+                reward = -1.0  # Penalty for invalid state
+            elif not success:
+                terminated = True
+                reward = -1.0  # Penalty for failed trade
+            elif self.current_step >= len(self.data) - 1:
+                terminated = True
+            
+            # Move to next step
+            self.current_step += 1
+            
+            # Prepare info dict
+            info = {
+                'portfolio_value': self.portfolio.state.total_value_in_erg,
+                'current_price': current_data['price'],
+                'last_action': Action(action).name,
+                'position_size': self.portfolio.get_position_size(),
+                'success': success,
+                'message': message,
+                'monitor_message': monitor_message,
+                'risk_metrics': risk_metrics,
+                'monitoring_stats': self.monitor.get_statistics()
+            }
+            
+            self.last_info = info
+            return observation, reward, terminated, False, info
+            
+        except Exception as e:
+            self.logger.error(f"Error in environment step: {e}")
+            return self.state_encoder.encode_state(self.data.iloc[self.current_step]), -1.0, True, False, {
+                'error': str(e),
+                'portfolio_value': self.portfolio.state.total_value_in_erg
+            }
+            
+    def reset(self, seed: Optional[int] = None, options: Optional[Dict] = None) -> Tuple[np.ndarray, Dict]:
+        """Reset the environment to initial state."""
         super().reset(seed=seed)
         
+        # Reset step counter
         self.current_step = 0
-        self.returns_history.clear()
-        self.peak_value = self.initial_balance
-        self.max_drawdown = 0.0
         
-        self.portfolio = PortfolioState(
-            erg_balance=self.initial_balance,
-            token_balance=0.0,
-            token_value_in_erg=0.0,
-            total_value_in_erg=self.initial_balance,
-            last_action=Action.HOLD,
-            current_price=self.data.iloc[0].price
+        # Reset all components
+        self.portfolio = PortfolioManager(initial_balance=self.portfolio.initial_balance)
+        self.reward_calculator = RewardCalculator(
+            portfolio_manager=self.portfolio,
+            base_transaction_fee=self.trading_executor.transaction_fee
         )
         
-        self.portfolio_history = [PortfolioState(**vars(self.portfolio))]
+        # Get initial state
+        initial_data = self.data.iloc[0]
+        observation = self.state_encoder.encode_state(initial_data)
         
-        # Additional info dictionary
         info = {
-            'initial_portfolio_value': self.initial_balance,
-            'initial_price': self.data.iloc[0].price
+            'portfolio_value': self.portfolio.state.total_value_in_erg,
+            'current_price': initial_data['price'],
+            'reset_message': 'Environment reset successfully'
         }
         
-        return self._get_observation(), info
-
+        self.last_info = info
+        return observation, info
+        
     def render(self):
-        """Render the environment"""
+        """Render the current state of the environment."""
         if self.render_mode == "human":
-            print(f"\nStep: {self.current_step}")
-            print(f"Portfolio Value: {self.portfolio.total_value_in_erg:.4f} ERG")
-            print(f"ERG Balance: {self.portfolio.erg_balance:.4f}")
-            print(f"Token Balance: {self.portfolio.token_balance:.4f}")
-            print(f"Current Price: {self.portfolio.current_price:.6f}")
-            print(f"Last Action: {self.portfolio.last_action.name}")
-            print(f"Sharpe Ratio: {self._calculate_sharpe_ratio():.4f}")
-            print(f"Max Drawdown: {self.max_drawdown:.4%}")
-            print(f"Volatility Penalty: {self._calculate_volatility_penalty():.4f}")
-            
+            print("\nEnvironment State:")
+            print(f"Step: {self.current_step}")
+            print(f"Portfolio Value: {self.portfolio.state.total_value_in_erg:.4f} ERG")
+            print(f"Position Size: {self.portfolio.get_position_size():.2%}")
+            if self.last_info:
+                print(f"Last Action: {self.last_info['last_action']}")
+                print(f"Current Price: {self.last_info['current_price']:.6f}")
+                
+                if 'risk_metrics' in self.last_info:
+                    print("\nRisk Metrics:")
+                    metrics = self.last_info['risk_metrics']
+                    print(f"  Sharpe Ratio: {metrics['sharpe_ratio']:.4f}")
+                    print(f"  Current Drawdown: {metrics['current_drawdown']:.2%}")
+                    print(f"  Max Drawdown: {metrics['max_drawdown']:.2%}")
+                    print(f"  Volatility: {metrics['volatility']:.4f}")
+                    print(f"  Win Rate: {metrics['win_rate']:.2%}")
+                    
+                if 'monitoring_stats' in self.last_info:
+                    print("\nMonitoring Stats:")
+                    stats = self.last_info['monitoring_stats']
+                    for key, value in stats.items():
+                        if isinstance(value, dict):
+                            print(f"  {key}:")
+                            for subkey, subvalue in value.items():
+                                print(f"    {subkey}: {subvalue}")
+                        else:
+                            print(f"  {key}: {value}")
+    
+    def get_valid_actions(self) -> np.ndarray:
+        """Return mask of valid actions based on current state."""
+        valid_actions = np.ones(self.action_space.n, dtype=np.int8)
+        
+        # Check if we can buy (need sufficient ERG balance)
+        if self.portfolio.state.erg_balance < self.trading_executor.transaction_fee:
+            valid_actions[Action.BUY.value] = 0
+        
+        # Check if we can sell (need tokens to sell)
+        if self.portfolio.state.token_balance <= 0:
+            valid_actions[Action.SELL.value] = 0
+        
+        # Check if rebalancing is valid (need sufficient total value)
+        if self.portfolio.state.total_value_in_erg < self.portfolio.initial_balance * 0.5:
+            valid_actions[Action.REBALANCE.value] = 0
+        
+        return valid_actions
+    
+    def get_portfolio_stats(self) -> Dict[str, float]:
+        """Get comprehensive portfolio statistics."""
+        metrics = self.risk_calculator.get_current_metrics_summary()
+        
+        stats = {
+            'total_value': self.portfolio.state.total_value_in_erg,
+            'erg_balance': self.portfolio.state.erg_balance,
+            'token_balance': self.portfolio.state.token_balance,
+            'position_size': self.portfolio.get_position_size(),
+            'total_return': (self.portfolio.state.total_value_in_erg / 
+                           self.portfolio.initial_balance - 1),
+            'current_price': self.portfolio.state.current_price
+        }
+        
+        # Add risk metrics
+        stats.update(metrics)
+        
+        return stats
+    
+    def get_feature_importance(self) -> Dict[str, float]:
+        """Get the names and current values of all observation features."""
+        current_observation = self.state_encoder.encode_state(
+            self.data.iloc[self.current_step]
+        )
+        
+        feature_names = self.state_encoder.get_feature_names()
+        return dict(zip(feature_names, current_observation))
+    
     def close(self):
+        """Clean up resources."""
         pass
+    
+    def seed(self, seed: Optional[int] = None):
+        """Set random seed."""
+        if seed is not None:
+            np.random.seed(seed)
+            
+    def _validate_data(self) -> bool:
+        """Validate that the input data has all required columns."""
+        required_columns = {'price', 'volume_erg'}
+        return all(col in self.data.columns for col in required_columns)
